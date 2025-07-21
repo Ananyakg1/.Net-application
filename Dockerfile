@@ -6,7 +6,7 @@ ARG ASPNET_VERSION=5.0
 # ================================
 # Build Stage
 # ================================
-FROM mcr.microsoft.com/dotnet/sdk:${DOTNET_VERSION}-alpine3.16 AS build
+FROM mcr.microsoft.com/dotnet/sdk:${DOTNET_VERSION} AS build
 
 # Set build arguments
 ARG BUILD_CONFIGURATION=Release
@@ -14,16 +14,19 @@ ARG APP_USER_UID=1001
 ARG APP_USER_GID=1001
 
 # Install security updates and required packages
-RUN apk update \
-    && apk upgrade \
-    && apk add --no-cache \
+RUN apt-get update \
+    && apt-get upgrade -y \
+    && apt-get install -y --no-install-recommends \
         ca-certificates \
         curl \
-    && rm -rf /var/cache/apk/*
+    && apt-get autoremove -y \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/* /var/cache/apt/archives/*
 
 # Create application user and group
-RUN addgroup -g ${APP_USER_GID} -S appuser \
-    && adduser -u ${APP_USER_UID} -S appuser -G appuser -s /sbin/nologin
+RUN groupadd -g ${APP_USER_GID} appuser \
+    && useradd -r -u ${APP_USER_UID} -g appuser -s /sbin/nologin \
+       -c "Application User" appuser
 
 # Set working directory
 WORKDIR /src
@@ -82,7 +85,7 @@ RUN find /app/publish -name "*.pdb" -delete \
 # ================================
 # Runtime Stage
 # ================================
-FROM mcr.microsoft.com/dotnet/aspnet:${ASPNET_VERSION}-alpine3.16 AS runtime
+FROM mcr.microsoft.com/dotnet/aspnet:${ASPNET_VERSION} AS runtime
 
 # Security labels and metadata
 LABEL maintainer="WebGoat Core Team" \
@@ -100,16 +103,19 @@ ARG APP_USER_UID=1001
 ARG APP_USER_GID=1001
 
 # Update base image packages for security
-RUN apk update \
-    && apk upgrade \
-    && apk add --no-cache \
+RUN apt-get update \
+    && apt-get upgrade -y \
+    && apt-get install -y --no-install-recommends \
         ca-certificates \
         curl \
-    && rm -rf /var/cache/apk/*
+    && apt-get autoremove -y \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/* /var/cache/apt/archives/*
 
 # Create application user and group (non-root)
-RUN addgroup -g ${APP_USER_GID} -S appuser \
-    && adduser -u ${APP_USER_UID} -S appuser -G appuser -s /sbin/nologin
+RUN groupadd -g ${APP_USER_GID} appuser \
+    && useradd -r -u ${APP_USER_UID} -g appuser -s /sbin/nologin \
+       -c "Application User" appuser
 
 # Create application directories with proper permissions
 RUN mkdir -p /app /app/data /app/logs /app/temp /var/log/app \
