@@ -39,7 +39,6 @@ WORKDIR /src/WebGoatCore
 RUN dotnet build WebGoatCore.csproj \
     -c ${BUILD_CONFIGURATION} \
     -o /app/build \
-    --runtime linux-x64 \
     --no-restore \
     --verbosity minimal
 
