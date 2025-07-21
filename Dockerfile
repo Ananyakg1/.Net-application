@@ -1,12 +1,12 @@
 # Use specific .NET 5.0 runtime and SDK versions for security and stability
 # Multi-stage build for smaller image size and better security
-ARG DOTNET_VERSION=5.0.17
-ARG ASPNET_VERSION=5.0.17
+ARG DOTNET_VERSION=5.0
+ARG ASPNET_VERSION=5.0
 
 # ================================
 # Build Stage
 # ================================
-FROM mcr.microsoft.com/dotnet/sdk:${DOTNET_VERSION}-focal AS build
+FROM mcr.microsoft.com/dotnet/sdk:${DOTNET_VERSION}-alpine3.16 AS build
 
 # Set build arguments
 ARG BUILD_CONFIGURATION=Release
@@ -14,19 +14,16 @@ ARG APP_USER_UID=1001
 ARG APP_USER_GID=1001
 
 # Install security updates and required packages
-RUN apt-get update \
-    && apt-get upgrade -y \
-    && apt-get install -y --no-install-recommends \
+RUN apk update \
+    && apk upgrade \
+    && apk add --no-cache \
         ca-certificates \
         curl \
-        gnupg2 \
-    && apt-get clean \
-    && rm -rf /var/lib/apt/lists/* /var/cache/apt/archives/*
+    && rm -rf /var/cache/apk/*
 
 # Create application user and group
-RUN groupadd -g ${APP_USER_GID} appuser \
-    && useradd -r -u ${APP_USER_UID} -g appuser -s /sbin/nologin \
-       -c "Application User" appuser
+RUN addgroup -g ${APP_USER_GID} -S appuser \
+    && adduser -u ${APP_USER_UID} -S appuser -G appuser -s /sbin/nologin
 
 # Set working directory
 WORKDIR /src
@@ -85,7 +82,7 @@ RUN find /app/publish -name "*.pdb" -delete \
 # ================================
 # Runtime Stage
 # ================================
-FROM mcr.microsoft.com/dotnet/aspnet:${ASPNET_VERSION}-focal AS runtime
+FROM mcr.microsoft.com/dotnet/aspnet:${ASPNET_VERSION}-alpine3.16 AS runtime
 
 # Security labels and metadata
 LABEL maintainer="WebGoat Core Team" \
@@ -103,21 +100,16 @@ ARG APP_USER_UID=1001
 ARG APP_USER_GID=1001
 
 # Update base image packages for security
-RUN apt-get update \
-    && apt-get upgrade -y \
-    && apt-get install -y --no-install-recommends \
+RUN apk update \
+    && apk upgrade \
+    && apk add --no-cache \
         ca-certificates \
         curl \
-        dumb-init \
-    && apt-get autoremove -y \
-    && apt-get clean \
-    && rm -rf /var/lib/apt/lists/* /var/cache/apt/archives/* \
-    && rm -rf /tmp/* /var/tmp/*
+    && rm -rf /var/cache/apk/*
 
 # Create application user and group (non-root)
-RUN groupadd -g ${APP_USER_GID} appuser \
-    && useradd -r -u ${APP_USER_UID} -g appuser -s /sbin/nologin \
-       -c "Application User" appuser
+RUN addgroup -g ${APP_USER_GID} -S appuser \
+    && adduser -u ${APP_USER_UID} -S appuser -G appuser -s /sbin/nologin
 
 # Create application directories with proper permissions
 RUN mkdir -p /app /app/data /app/logs /app/temp /var/log/app \
@@ -168,11 +160,8 @@ EXPOSE 8080
 HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
     CMD ["/app/healthcheck.sh"]
 
-# Use dumb-init for proper signal handling
-ENTRYPOINT ["dumb-init", "--"]
-
-# Run the application
-CMD ["dotnet", "WebGoatCore.dll"]
+# Use simple shell script entrypoint for proper signal handling
+ENTRYPOINT ["dotnet", "WebGoatCore.dll"]
 
 # Security best practices applied:
 # 1. Multi-stage build to reduce image size
