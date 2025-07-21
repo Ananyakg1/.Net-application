@@ -29,6 +29,19 @@ jobs:
     - name: Checkout code
       uses: actions/checkout@v4
     
+    - name: Install Azure CLI and dependencies
+      run: |
+        # Install Azure CLI
+        curl -sL https://aka.ms/InstallAzureCLIDeb | sudo bash
+        
+        # Install additional dependencies
+        sudo apt-get update
+        sudo apt-get install -y curl wget jq
+        
+        # Verify installations
+        az version
+        jq --version
+    
     - name: Set scan parameters
       id: params
       run: |
