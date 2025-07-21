@@ -343,18 +343,32 @@ jobs:
         # Get the full image path from build job outputs
         FULL_IMAGE_TAG="${{ needs.build.outputs.acr-server }}/webgoat-core:${{ needs.build.outputs.build-id }}"
         
-        # Update the deployment YAML with the new image tag
-        sed -i "s|\${ACR_LOGIN_SERVER}/webgoat-core:\${IMAGE_TAG}|${FULL_IMAGE_TAG}|g" k8s/deployment.yaml
+        echo "Updating deployment with image: ${FULL_IMAGE_TAG}"
+        
+        # Use a more reliable method to replace the image
+        sed -i "s|\${ACR_LOGIN_SERVER}|${{ needs.build.outputs.acr-server }}|g" k8s/deployment.yaml
+        sed -i "s|\${IMAGE_TAG}|${{ needs.build.outputs.build-id }}|g" k8s/deployment.yaml
         
         echo "Updated deployment image to: ${FULL_IMAGE_TAG}"
         
         # Verify the change
-        grep "image:" k8s/deployment.yaml
+        echo "=== Current image configuration ==="
+        grep -n "image:" k8s/deployment.yaml
     
     - name: Deploy application
       id: deploy
       run: |
         echo "Deploying application to AKS..."
+        
+        # Clean up any existing deployments to avoid cache issues
+        echo "Cleaning up existing deployment..."
+        if kubectl get deployment ${{ env.DEPLOYMENT_NAME }} -n ${{ env.NAMESPACE }} >/dev/null 2>&1; then
+          echo "Existing deployment found, deleting to ensure clean deployment..."
+          kubectl delete deployment ${{ env.DEPLOYMENT_NAME }} -n ${{ env.NAMESPACE }}
+          # Wait for pods to be terminated
+          echo "Waiting for pods to terminate..."
+          kubectl wait --for=delete pods -l app=dotnet-app -n ${{ env.NAMESPACE }} --timeout=120s || true
+        fi
         
         # Apply deployment and service
         kubectl apply -f k8s/deployment.yaml
