@@ -338,33 +338,38 @@ jobs:
         kubectl apply -f k8s/network-policy.yaml
         # kubectl apply -f k8s/scaling.yaml  # Temporarily disabled - may require metrics server
     
-    - name: Debug build outputs
-      run: |
-        echo "=== Build Job Outputs Debug ==="
-        echo "acr-server: '${{ needs.build.outputs.acr-server }}'"
-        echo "build-id: '${{ needs.build.outputs.build-id }}'"
-        echo "image-tag: '${{ needs.build.outputs.image-tag }}'"
-        
-        # Check if outputs are empty
-        if [ -z "${{ needs.build.outputs.acr-server }}" ]; then
-          echo "❌ ERROR: acr-server output is empty!"
-        fi
-        if [ -z "${{ needs.build.outputs.build-id }}" ]; then
-          echo "❌ ERROR: build-id output is empty!"
-        fi
-    
     - name: Update deployment image
       run: |
-        # Get the full image path from build job outputs
+        echo "=== Build Job Outputs Debug ==="
+        echo "image-tag: '${{ needs.build.outputs.image-tag }}'"
+        echo "acr-server: '${{ needs.build.outputs.acr-server }}'"
+        echo "build-id: '${{ needs.build.outputs.build-id }}'"
+        
+        # Try to get the full image tag from outputs, if empty construct it manually
         FULL_IMAGE_TAG="${{ needs.build.outputs.image-tag }}"
         
+        if [ -z "${FULL_IMAGE_TAG}" ]; then
+          echo "⚠️ image-tag output is empty, constructing manually..."
+          ACR_SERVER="${{ needs.build.outputs.acr-server }}"
+          BUILD_ID="${{ needs.build.outputs.build-id }}"
+          
+          if [ -n "${ACR_SERVER}" ] && [ -n "${BUILD_ID}" ]; then
+            FULL_IMAGE_TAG="${ACR_SERVER}/webgoat-core:${BUILD_ID}"
+            echo "Constructed image tag: ${FULL_IMAGE_TAG}"
+          else
+            echo "❌ ERROR: Cannot construct image tag - missing components:"
+            echo "  ACR_SERVER: '${ACR_SERVER}'"
+            echo "  BUILD_ID: '${BUILD_ID}'"
+            exit 1
+          fi
+        fi
+        
         echo "=== Image Substitution Debug ==="
-        echo "Using image-tag output directly: ${FULL_IMAGE_TAG}"
+        echo "Final image tag: ${FULL_IMAGE_TAG}"
         
         # Validate the image tag is not empty
         if [ -z "${FULL_IMAGE_TAG}" ]; then
-          echo "❌ ERROR: FULL_IMAGE_TAG is empty!"
-          echo "image-tag output: '${{ needs.build.outputs.image-tag }}'"
+          echo "❌ ERROR: FULL_IMAGE_TAG is still empty!"
           exit 1
         fi
         
