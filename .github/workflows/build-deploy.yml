@@ -494,32 +494,64 @@ jobs:
       run: |
         echo "Running post-deployment health checks..."
         
-        # Wait a bit for the application to fully start
-        sleep 30
+        # Wait for health checks to complete their initial delays
+        echo "Waiting for application startup and health check initialization..."
+        echo "⏳ Startup probes need 2 minutes, readiness probes need 2.5 minutes"
+        sleep 60
+        
+        # Function to check pod readiness with multiple attempts
+        check_pods_ready() {
+          local max_attempts=10
+          local attempt=1
+          
+          while [ $attempt -le $max_attempts ]; do
+            echo "Attempt $attempt/$max_attempts - Checking pod readiness..."
+            
+            READY_PODS=$(kubectl get pods -n ${{ env.NAMESPACE }} -l app=dotnet-app -o jsonpath='{.items[*].status.conditions[?(@.type=="Ready")].status}' | grep -c "True" || echo "0")
+            TOTAL_PODS=$(kubectl get pods -n ${{ env.NAMESPACE }} -l app=dotnet-app --no-headers | wc -l)
+            
+            echo "Ready pods: ${READY_PODS}/${TOTAL_PODS}"
+            
+            if [ "${READY_PODS}" -eq "${TOTAL_PODS}" ] && [ "${READY_PODS}" -gt "0" ]; then
+              echo "✅ All pods are ready and healthy!"
+              return 0
+            else
+              echo "⏳ Waiting for pods to become ready... (${READY_PODS}/${TOTAL_PODS})"
+              if [ $attempt -eq $max_attempts ]; then
+                echo "❌ Timeout: Not all pods became ready within the expected time"
+                echo "Pod details:"
+                kubectl get pods -n ${{ env.NAMESPACE }} -l app=dotnet-app -o wide
+                return 1
+              fi
+              sleep 30
+            fi
+            
+            attempt=$((attempt + 1))
+          done
+        }
         
         # Check if pods are ready
-        READY_PODS=$(kubectl get pods -n ${{ env.NAMESPACE }} -l app=dotnet-app -o jsonpath='{.items[*].status.conditions[?(@.type=="Ready")].status}' | grep -c "True" || echo "0")
-        TOTAL_PODS=$(kubectl get pods -n ${{ env.NAMESPACE }} -l app=dotnet-app --no-headers | wc -l)
-        
-        echo "Ready pods: ${READY_PODS}/${TOTAL_PODS}"
-        
-        if [ "${READY_PODS}" -eq "${TOTAL_PODS}" ] && [ "${READY_PODS}" -gt "0" ]; then
-          echo "✅ All pods are ready and healthy"
-          
+        if check_pods_ready; then
           # Test health endpoint if possible (port-forward test)
+          echo "Testing health endpoint connectivity..."
           kubectl port-forward -n ${{ env.NAMESPACE }} svc/dotnet-service 8080:80 &
           PF_PID=$!
           sleep 5
           
-          if curl -f http://localhost:8080/health --max-time 10 > /dev/null 2>&1; then
-            echo "✅ Health endpoint is responding"
+          if curl -f http://localhost:8080/Health --max-time 10 > /dev/null 2>&1; then
+            echo "✅ Health endpoint /Health is responding"
+          elif curl -f http://localhost:8080/health --max-time 10 > /dev/null 2>&1; then
+            echo "✅ Health endpoint /health is responding"
           else
             echo "⚠️ Health endpoint test failed (may be expected in cluster environment)"
+            echo "This doesn't indicate deployment failure - pods are ready in cluster"
           fi
           
           kill $PF_PID > /dev/null 2>&1 || true
+          
+          echo "🎉 Deployment completed successfully!"
         else
-          echo "❌ Some pods are not ready"
+          echo "❌ Some pods are not ready after extended wait"
           kubectl describe pods -n ${{ env.NAMESPACE }} -l app=dotnet-app
           exit 1
         fi
