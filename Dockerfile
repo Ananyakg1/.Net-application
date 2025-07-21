@@ -34,20 +34,15 @@ WORKDIR /src
 # Copy project files and restore dependencies
 # Copy only project files first to leverage Docker layer caching
 COPY WebGoatCore/WebGoatCore.csproj WebGoatCore/
-COPY MyWebApp/MyWebApp.csproj MyWebApp/ 2>/dev/null || true
-COPY WebGoatCore.UnitTests/WebGoatCore.UnitTests.csproj WebGoatCore.UnitTests/ 2>/dev/null || true
-COPY MyWebApp.UnitTests/MyWebAppUnitTests.csproj MyWebApp.UnitTests/ 2>/dev/null || true
 COPY WebGoatCore.sln ./
 
 # Restore NuGet packages with security settings
 RUN dotnet nuget locals all --clear \
-    && dotnet restore WebGoatCore.sln --verbosity minimal \
-       --runtime linux-x64 \
-       --locked-mode
+    && dotnet restore WebGoatCore/WebGoatCore.csproj --verbosity minimal \
+       --runtime linux-x64
 
 # Copy application source code
 COPY WebGoatCore/ WebGoatCore/
-COPY MyWebApp/ MyWebApp/ 2>/dev/null || true
 
 # Build the application
 WORKDIR /src/WebGoatCore
