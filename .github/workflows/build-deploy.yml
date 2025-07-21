@@ -318,12 +318,12 @@ jobs:
           kubectl apply -f k8s/namespace.yaml
         fi
     
-    - name: Deploy prerequisites (ConfigMaps, Secrets, RBAC)
+    - name: Deploy prerequisites (ConfigMaps, Secrets)
       run: |
         echo "Deploying prerequisites..."
         
-        # Apply in order for dependencies
-        kubectl apply -f k8s/rbac.yaml
+        # Apply in order for dependencies (skip RBAC for now to simplify deployment)
+        # kubectl apply -f k8s/rbac.yaml
         kubectl apply -f k8s/configmap.yaml
         
         # Check if secrets exist, if not apply them
@@ -336,7 +336,7 @@ jobs:
         fi
         
         kubectl apply -f k8s/network-policy.yaml
-        kubectl apply -f k8s/scaling.yaml
+        # kubectl apply -f k8s/scaling.yaml  # Temporarily disabled - may require metrics server
     
     - name: Update deployment image
       run: |
