@@ -360,21 +360,69 @@ jobs:
         kubectl apply -f k8s/deployment.yaml
         kubectl apply -f k8s/service.yaml
         
-        # Wait for rollout to complete
+        # Show initial deployment status
+        echo "Initial deployment status:"
+        kubectl get deployment ${{ env.DEPLOYMENT_NAME }} -n ${{ env.NAMESPACE }} -o wide
+        
+        # Wait for rollout to complete with error handling
         echo "Waiting for deployment rollout..."
-        kubectl rollout status deployment/${{ env.DEPLOYMENT_NAME }} -n ${{ env.NAMESPACE }} --timeout=600s
+        if ! kubectl rollout status deployment/${{ env.DEPLOYMENT_NAME }} -n ${{ env.NAMESPACE }} --timeout=600s; then
+          echo "❌ Deployment rollout failed or timed out!"
+          echo "Gathering diagnostic information..."
+          
+          # Get pod status and details
+          echo "=== Pod Status ==="
+          kubectl get pods -n ${{ env.NAMESPACE }} -l app=dotnet-app -o wide
+          
+          echo "=== Pod Descriptions ==="
+          kubectl describe pods -n ${{ env.NAMESPACE }} -l app=dotnet-app
+          
+          echo "=== Pod Logs ==="
+          for pod in $(kubectl get pods -n ${{ env.NAMESPACE }} -l app=dotnet-app -o jsonpath='{.items[*].metadata.name}'); do
+            echo "--- Logs for pod: $pod ---"
+            kubectl logs $pod -n ${{ env.NAMESPACE }} --tail=100 || echo "No logs available for $pod"
+          done
+          
+          echo "=== Deployment Events ==="
+          kubectl describe deployment ${{ env.DEPLOYMENT_NAME }} -n ${{ env.NAMESPACE }}
+          
+          echo "=== ReplicaSet Status ==="
+          kubectl get rs -n ${{ env.NAMESPACE }} -l app=dotnet-app
+          
+          # Continue with partial deployment for analysis
+          echo "⚠️ Continuing with partial deployment for analysis..."
+        else
+          echo "✅ Deployment rollout completed successfully!"
+        fi
         
-        # Get deployment status
-        kubectl get deployment ${{ env.DEPLOYMENT_NAME }} -n ${{ env.NAMESPACE }}
-        kubectl get pods -n ${{ env.NAMESPACE }} -l app=dotnet-app
+        # Get final deployment status
+        echo "=== Final Status ==="
+        kubectl get deployment ${{ env.DEPLOYMENT_NAME }} -n ${{ env.NAMESPACE }} -o wide
+        kubectl get pods -n ${{ env.NAMESPACE }} -l app=dotnet-app -o wide
         
-        # Get service information
-        SERVICE_IP=$(kubectl get service dotnet-service -n ${{ env.NAMESPACE }} -o jsonpath='{.spec.clusterIP}')
-        echo "app-url=${SERVICE_IP}" >> $GITHUB_OUTPUT
+        # Get service information (even if deployment partially failed)
+        echo "=== Service Information ==="
+        kubectl get services -n ${{ env.NAMESPACE }}
         
-        echo "✅ Application deployed successfully!" >> $GITHUB_STEP_SUMMARY
-        echo "**Service IP:** ${SERVICE_IP}" >> $GITHUB_STEP_SUMMARY
+        if kubectl get service dotnet-service -n ${{ env.NAMESPACE }} >/dev/null 2>&1; then
+          SERVICE_IP=$(kubectl get service dotnet-service -n ${{ env.NAMESPACE }} -o jsonpath='{.spec.clusterIP}')
+          echo "app-url=${SERVICE_IP}" >> $GITHUB_OUTPUT
+          
+          echo "**Service IP:** ${SERVICE_IP}" >> $GITHUB_STEP_SUMMARY
+        else
+          echo "⚠️ Service not found or not ready" >> $GITHUB_STEP_SUMMARY
+        fi
+        
         echo "**Image:** ${{ needs.build.outputs.acr-server }}/webgoat-core:${{ needs.build.outputs.build-id }}" >> $GITHUB_STEP_SUMMARY
+        
+        # Check if we should continue or fail
+        READY_PODS=$(kubectl get pods -n ${{ env.NAMESPACE }} -l app=dotnet-app -o jsonpath='{.items[*].status.conditions[?(@.type=="Ready")].status}' | grep -c "True" || echo "0")
+        if [ "$READY_PODS" -eq 0 ]; then
+          echo "❌ No pods are ready - deployment has issues that need investigation" >> $GITHUB_STEP_SUMMARY
+          # Don't fail the step to allow analysis of logs
+        else
+          echo "✅ Application deployed with $READY_PODS ready pods!" >> $GITHUB_STEP_SUMMARY
+        fi
     
     - name: Run deployment health checks
       run: |

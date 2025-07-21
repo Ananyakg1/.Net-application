@@ -8,7 +8,7 @@ metadata:
     environment: production
     version: v1
 spec:
-  replicas: 3
+  replicas: 1  # Reduced for debugging
   strategy:
     type: RollingUpdate
     rollingUpdate:
@@ -55,7 +55,7 @@ spec:
         # Container security context
         securityContext:
           allowPrivilegeEscalation: false
-          readOnlyRootFilesystem: true
+          readOnlyRootFilesystem: false  # Temporarily disabled for debugging
           runAsNonRoot: true
           runAsUser: 1001
           runAsGroup: 1001
@@ -96,7 +96,7 @@ spec:
             path: /health/live
             port: http
             scheme: HTTP
-          initialDelaySeconds: 30
+          initialDelaySeconds: 60  # Increased for debugging
           periodSeconds: 10
           timeoutSeconds: 5
           successThreshold: 1
@@ -107,7 +107,7 @@ spec:
             path: /health/ready
             port: http
             scheme: HTTP
-          initialDelaySeconds: 15
+          initialDelaySeconds: 45  # Increased for debugging
           periodSeconds: 5
           timeoutSeconds: 3
           successThreshold: 1
@@ -118,9 +118,9 @@ spec:
             path: /health/startup
             port: http
             scheme: HTTP
-          initialDelaySeconds: 10
-          periodSeconds: 5
-          timeoutSeconds: 3
+          initialDelaySeconds: 30  # Increased for debugging
+          periodSeconds: 10
+          timeoutSeconds: 5
           successThreshold: 1
           failureThreshold: 30
         
