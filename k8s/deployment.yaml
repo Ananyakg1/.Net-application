@@ -23,9 +23,6 @@ spec:
         app: dotnet-app
         environment: production
         version: v1
-      annotations:
-        # Security annotations
-        container.apparmor.security.beta.kubernetes.io/dotnet-container: runtime/default
     spec:
       # Security contexts at pod level
       securityContext:
@@ -35,9 +32,6 @@ spec:
         fsGroup: 1001
         seccompProfile:
           type: RuntimeDefault
-      
-      # Service account for RBAC
-      serviceAccountName: dotnet-service-account
       
       # Anti-affinity for better distribution
       affinity:
@@ -55,7 +49,7 @@ spec:
       
       containers:
       - name: dotnet-container
-        image: dotnet:latest
+        image: ${ACR_LOGIN_SERVER}/webgoat-core:${IMAGE_TAG}
         imagePullPolicy: Always
         
         # Container security context
@@ -71,6 +65,8 @@ spec:
             add:
             - NET_BIND_SERVICE
           seccompProfile:
+            type: RuntimeDefault
+          appArmorProfile:
             type: RuntimeDefault
         
         ports:
@@ -97,7 +93,7 @@ spec:
         # Health checks
         livenessProbe:
           httpGet:
-            path: /health
+            path: /health/live
             port: http
             scheme: HTTP
           initialDelaySeconds: 30
@@ -126,7 +122,7 @@ spec:
           periodSeconds: 5
           timeoutSeconds: 3
           successThreshold: 1
-          failureThreshold: 10
+          failureThreshold: 30
         
         # Volume mounts for writable directories
         volumeMounts:

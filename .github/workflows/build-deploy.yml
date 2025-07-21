@@ -344,7 +344,7 @@ jobs:
         FULL_IMAGE_TAG="${{ needs.build.outputs.acr-server }}/webgoat-core:${{ needs.build.outputs.build-id }}"
         
         # Update the deployment YAML with the new image tag
-        sed -i "s|image: dotnet:latest|image: ${FULL_IMAGE_TAG}|g" k8s/deployment.yaml
+        sed -i "s|\${ACR_LOGIN_SERVER}/webgoat-core:\${IMAGE_TAG}|${FULL_IMAGE_TAG}|g" k8s/deployment.yaml
         
         echo "Updated deployment image to: ${FULL_IMAGE_TAG}"
         
