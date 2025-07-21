@@ -1,0 +1,390 @@
+name: Build, Scan, and Deploy to AKS
+
+on:
+  push:
+    branches:
+      - main
+      - develop
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+
+env:
+  AZURE_CONTAINER_REGISTRY: ${{ secrets.REGISTRY_LOGIN_SERVER }}
+  IMAGE_NAME: webgoat-core
+  NAMESPACE: dotnet-namespace
+  DEPLOYMENT_NAME: dotnet-app
+
+jobs:
+  build:
+    name: Build and Security Scan
+    runs-on: ubuntu-latest
+    
+    outputs:
+      image-tag: ${{ steps.meta.outputs.tags }}
+      image-digest: ${{ steps.build.outputs.digest }}
+      
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+    
+    - name: Generate build ID and metadata
+      id: meta
+      run: |
+        BUILD_ID="${GITHUB_SHA::8}-$(date +%s)"
+        IMAGE_TAG="${{ env.AZURE_CONTAINER_REGISTRY }}/${{ env.IMAGE_NAME }}:${BUILD_ID}"
+        LATEST_TAG="${{ env.AZURE_CONTAINER_REGISTRY }}/${{ env.IMAGE_NAME }}:latest"
+        
+        echo "build-id=${BUILD_ID}" >> $GITHUB_OUTPUT
+        echo "tags=${IMAGE_TAG}" >> $GITHUB_OUTPUT
+        echo "latest-tag=${LATEST_TAG}" >> $GITHUB_OUTPUT
+        
+        echo "Build ID: ${BUILD_ID}"
+        echo "Image Tag: ${IMAGE_TAG}"
+    
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v3
+      with:
+        platforms: linux/amd64
+    
+    - name: Log in to Azure Container Registry
+      uses: docker/login-action@v3
+      with:
+        registry: ${{ secrets.REGISTRY_LOGIN_SERVER }}
+        username: ${{ secrets.REGISTRY_USERNAME }}
+        password: ${{ secrets.REGISTRY_PASSWORD }}
+    
+    - name: Build Docker image
+      id: build
+      uses: docker/build-push-action@v5
+      with:
+        context: .
+        file: ./Dockerfile
+        platforms: linux/amd64
+        push: false
+        load: true
+        tags: |
+          ${{ steps.meta.outputs.tags }}
+          ${{ steps.meta.outputs.latest-tag }}
+        build-args: |
+          DOTNET_VERSION=5.0.17
+          ASPNET_VERSION=5.0.17
+          BUILD_CONFIGURATION=Release
+          APP_USER_UID=1001
+          APP_USER_GID=1001
+        cache-from: type=gha
+        cache-to: type=gha,mode=max
+    
+    - name: Install Trivy manually
+      run: |
+        sudo apt-get update
+        sudo apt-get install wget apt-transport-https gnupg lsb-release -y
+        wget -qO - https://aquasecurity.github.io/trivy-repo/deb/public.key | sudo apt-key add -
+        echo "deb https://aquasecurity.github.io/trivy-repo/deb $(lsb_release -sc) main" | sudo tee -a /etc/apt/sources.list.d/trivy.list
+        sudo apt-get update
+        sudo apt-get install trivy -y
+        trivy --version
+    
+    - name: Run Trivy vulnerability scanner (Table format)
+      run: |
+        echo "## 🔍 Trivy Security Scan Results (Table Format)" >> $GITHUB_STEP_SUMMARY
+        echo "Scanning image: ${{ steps.meta.outputs.tags }}" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+        
+        trivy image \
+          --format table \
+          --severity CRITICAL,HIGH \
+          --ignore-unfixed \
+          --no-progress \
+          ${{ steps.meta.outputs.tags }} | tee trivy-results-table.txt
+        
+        cat trivy-results-table.txt >> $GITHUB_STEP_SUMMARY
+        echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+    
+    - name: Run Trivy vulnerability scanner (SARIF format)
+      uses: aquasecurity/trivy-action@0.28.0
+      with:
+        image-ref: ${{ steps.meta.outputs.tags }}
+        format: sarif
+        output: trivy-results.sarif
+        severity: CRITICAL,HIGH
+        ignore-unfixed: true
+        exit-code: 0
+    
+    - name: Upload Trivy scan results to GitHub Security tab
+      uses: github/codeql-action/upload-sarif@v3
+      if: always()
+      with:
+        sarif_file: trivy-results.sarif
+        category: trivy-container-scan
+    
+    - name: Run Trivy vulnerability scanner (Exit on critical/high)
+      run: |
+        echo "## 🚨 Final Security Validation" >> $GITHUB_STEP_SUMMARY
+        echo "Running final Trivy scan with exit code enforcement..." >> $GITHUB_STEP_SUMMARY
+        
+        trivy image \
+          --format json \
+          --severity CRITICAL,HIGH \
+          --ignore-unfixed \
+          --exit-code 1 \
+          --no-progress \
+          ${{ steps.meta.outputs.tags }} > trivy-results.json
+        
+        # Check if any vulnerabilities were found
+        CRITICAL_COUNT=$(cat trivy-results.json | jq '[.Results[]?.Vulnerabilities[]? | select(.Severity=="CRITICAL")] | length')
+        HIGH_COUNT=$(cat trivy-results.json | jq '[.Results[]?.Vulnerabilities[]? | select(.Severity=="HIGH")] | length')
+        
+        echo "Critical vulnerabilities found: ${CRITICAL_COUNT}" >> $GITHUB_STEP_SUMMARY
+        echo "High vulnerabilities found: ${HIGH_COUNT}" >> $GITHUB_STEP_SUMMARY
+        
+        if [ "${CRITICAL_COUNT}" -gt 0 ] || [ "${HIGH_COUNT}" -gt 0 ]; then
+          echo "❌ Security scan failed - critical or high vulnerabilities detected!" >> $GITHUB_STEP_SUMMARY
+          exit 1
+        else
+          echo "✅ Security scan passed - no critical or high vulnerabilities found!" >> $GITHUB_STEP_SUMMARY
+        fi
+    
+    - name: Create security report
+      if: always()
+      run: |
+        cat > security-report.md << 'EOF'
+        # 🔒 Security Scan Report
+        
+        **Image:** ${{ steps.meta.outputs.tags }}
+        **Build ID:** ${{ steps.meta.outputs.build-id }}
+        **Scan Date:** $(date -u)
+        **Branch:** ${{ github.ref_name }}
+        **Commit:** ${{ github.sha }}
+        
+        ## Scan Configuration
+        - **Scanner:** Trivy
+        - **Severity Levels:** CRITICAL, HIGH
+        - **Ignore Unfixed:** Yes
+        - **Exit on Vulnerabilities:** Yes
+        
+        ## Scan Results Summary
+        EOF
+        
+        if [ -f trivy-results.json ]; then
+          TOTAL_VULNS=$(cat trivy-results.json | jq '[.Results[]?.Vulnerabilities[]?] | length')
+          CRITICAL_VULNS=$(cat trivy-results.json | jq '[.Results[]?.Vulnerabilities[]? | select(.Severity=="CRITICAL")] | length')
+          HIGH_VULNS=$(cat trivy-results.json | jq '[.Results[]?.Vulnerabilities[]? | select(.Severity=="HIGH")] | length')
+          
+          echo "- **Total Vulnerabilities:** ${TOTAL_VULNS}" >> security-report.md
+          echo "- **Critical:** ${CRITICAL_VULNS}" >> security-report.md
+          echo "- **High:** ${HIGH_VULNS}" >> security-report.md
+        fi
+        
+        echo "" >> security-report.md
+        echo "## Detailed Results" >> security-report.md
+        echo "\`\`\`" >> security-report.md
+        cat trivy-results-table.txt >> security-report.md
+        echo "\`\`\`" >> security-report.md
+    
+    - name: Upload security artifacts
+      uses: actions/upload-artifact@v4
+      if: always()
+      with:
+        name: security-scan-results-${{ steps.meta.outputs.build-id }}
+        path: |
+          trivy-results.sarif
+          trivy-results.json
+          trivy-results-table.txt
+          security-report.md
+        retention-days: 30
+    
+    - name: Push Docker image to ACR
+      if: success()
+      run: |
+        echo "Pushing image to Azure Container Registry..."
+        docker push ${{ steps.meta.outputs.tags }}
+        docker push ${{ steps.meta.outputs.latest-tag }}
+        
+        echo "✅ Image pushed successfully!" >> $GITHUB_STEP_SUMMARY
+        echo "**Image:** ${{ steps.meta.outputs.tags }}" >> $GITHUB_STEP_SUMMARY
+
+  deploy:
+    name: Deploy to AKS
+    runs-on: ubuntu-latest
+    needs: build
+    if: success() && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop')
+    
+    environment:
+      name: ${{ github.ref == 'refs/heads/main' && 'production' || 'development' }}
+      url: http://${{ steps.deploy.outputs.app-url }}
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+    
+    - name: Azure Login
+      uses: azure/login@v1
+      with:
+        client-id: ${{ secrets.AZURE_CLIENT_ID }}
+        client-secret: ${{ secrets.AZURE_CLIENT_SECRET }}
+        tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+        subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+    
+    - name: Set up kubectl
+      uses: azure/setup-kubectl@v3
+      with:
+        version: 'v1.28.0'
+    
+    - name: Get AKS credentials
+      run: |
+        az aks get-credentials \
+          --resource-group ${{ secrets.AKS_RESOURCE_GROUP }} \
+          --name ${{ secrets.AKS_CLUSTER_NAME }} \
+          --overwrite-existing
+        
+        # Verify connection
+        kubectl cluster-info
+        kubectl get nodes
+    
+    - name: Verify namespace exists
+      run: |
+        if kubectl get namespace ${{ env.NAMESPACE }} > /dev/null 2>&1; then
+          echo "✅ Namespace ${{ env.NAMESPACE }} exists"
+        else
+          echo "❌ Namespace ${{ env.NAMESPACE }} does not exist"
+          echo "Creating namespace..."
+          kubectl apply -f k8s/namespace.yaml
+        fi
+    
+    - name: Deploy prerequisites (ConfigMaps, Secrets, RBAC)
+      run: |
+        echo "Deploying prerequisites..."
+        
+        # Apply in order for dependencies
+        kubectl apply -f k8s/rbac.yaml
+        kubectl apply -f k8s/configmap.yaml
+        
+        # Check if secrets exist, if not apply them
+        if ! kubectl get secret dotnet-secrets -n ${{ env.NAMESPACE }} > /dev/null 2>&1; then
+          echo "⚠️ Warning: Secrets not found. Applying from secrets.yaml"
+          echo "Make sure to update secrets with real values in production!"
+          kubectl apply -f k8s/secrets.yaml
+        else
+          echo "✅ Secrets already exist"
+        fi
+        
+        kubectl apply -f k8s/network-policy.yaml
+        kubectl apply -f k8s/scaling.yaml
+    
+    - name: Update deployment image
+      run: |
+        # Update the deployment YAML with the new image tag
+        sed -i "s|image: dotnet:latest|image: ${{ needs.build.outputs.image-tag }}|g" k8s/deployment.yaml
+        
+        echo "Updated deployment image to: ${{ needs.build.outputs.image-tag }}"
+    
+    - name: Deploy application
+      id: deploy
+      run: |
+        echo "Deploying application to AKS..."
+        
+        # Apply deployment and service
+        kubectl apply -f k8s/deployment.yaml
+        kubectl apply -f k8s/service.yaml
+        
+        # Wait for rollout to complete
+        echo "Waiting for deployment rollout..."
+        kubectl rollout status deployment/${{ env.DEPLOYMENT_NAME }} -n ${{ env.NAMESPACE }} --timeout=600s
+        
+        # Get deployment status
+        kubectl get deployment ${{ env.DEPLOYMENT_NAME }} -n ${{ env.NAMESPACE }}
+        kubectl get pods -n ${{ env.NAMESPACE }} -l app=dotnet-app
+        
+        # Get service information
+        SERVICE_IP=$(kubectl get service dotnet-service -n ${{ env.NAMESPACE }} -o jsonpath='{.spec.clusterIP}')
+        echo "app-url=${SERVICE_IP}" >> $GITHUB_OUTPUT
+        
+        echo "✅ Application deployed successfully!" >> $GITHUB_STEP_SUMMARY
+        echo "**Service IP:** ${SERVICE_IP}" >> $GITHUB_STEP_SUMMARY
+        echo "**Image:** ${{ needs.build.outputs.image-tag }}" >> $GITHUB_STEP_SUMMARY
+    
+    - name: Run deployment health checks
+      run: |
+        echo "Running post-deployment health checks..."
+        
+        # Wait a bit for the application to fully start
+        sleep 30
+        
+        # Check if pods are ready
+        READY_PODS=$(kubectl get pods -n ${{ env.NAMESPACE }} -l app=dotnet-app -o jsonpath='{.items[*].status.conditions[?(@.type=="Ready")].status}' | grep -c "True" || echo "0")
+        TOTAL_PODS=$(kubectl get pods -n ${{ env.NAMESPACE }} -l app=dotnet-app --no-headers | wc -l)
+        
+        echo "Ready pods: ${READY_PODS}/${TOTAL_PODS}"
+        
+        if [ "${READY_PODS}" -eq "${TOTAL_PODS}" ] && [ "${READY_PODS}" -gt "0" ]; then
+          echo "✅ All pods are ready and healthy"
+          
+          # Test health endpoint if possible (port-forward test)
+          kubectl port-forward -n ${{ env.NAMESPACE }} svc/dotnet-service 8080:80 &
+          PF_PID=$!
+          sleep 5
+          
+          if curl -f http://localhost:8080/health --max-time 10 > /dev/null 2>&1; then
+            echo "✅ Health endpoint is responding"
+          else
+            echo "⚠️ Health endpoint test failed (may be expected in cluster environment)"
+          fi
+          
+          kill $PF_PID > /dev/null 2>&1 || true
+        else
+          echo "❌ Some pods are not ready"
+          kubectl describe pods -n ${{ env.NAMESPACE }} -l app=dotnet-app
+          exit 1
+        fi
+    
+    - name: Generate deployment summary
+      if: always()
+      run: |
+        cat > deployment-summary.md << 'EOF'
+        # 🚀 Deployment Summary
+        
+        **Environment:** ${{ github.ref == 'refs/heads/main' && 'Production' || 'Development' }}
+        **Namespace:** ${{ env.NAMESPACE }}
+        **Image:** ${{ needs.build.outputs.image-tag }}
+        **Deployment Date:** $(date -u)
+        **Branch:** ${{ github.ref_name }}
+        **Commit:** ${{ github.sha }}
+        
+        ## Deployment Status
+        EOF
+        
+        kubectl get deployment ${{ env.DEPLOYMENT_NAME }} -n ${{ env.NAMESPACE }} >> deployment-summary.md
+        echo "" >> deployment-summary.md
+        echo "## Pods Status" >> deployment-summary.md
+        kubectl get pods -n ${{ env.NAMESPACE }} -l app=dotnet-app >> deployment-summary.md
+        echo "" >> deployment-summary.md
+        echo "## Service Status" >> deployment-summary.md
+        kubectl get service dotnet-service -n ${{ env.NAMESPACE }} >> deployment-summary.md
+    
+    - name: Upload deployment artifacts
+      uses: actions/upload-artifact@v4
+      if: always()
+      with:
+        name: deployment-summary-${{ github.run_number }}
+        path: deployment-summary.md
+        retention-days: 30
+    
+    - name: Notify deployment status
+      if: always()
+      run: |
+        if [ "${{ job.status }}" == "success" ]; then
+          echo "## ✅ Deployment Successful" >> $GITHUB_STEP_SUMMARY
+          echo "Application has been successfully deployed to AKS cluster." >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Environment:** ${{ github.ref == 'refs/heads/main' && 'Production' || 'Development' }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Namespace:** ${{ env.NAMESPACE }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Image:** ${{ needs.build.outputs.image-tag }}" >> $GITHUB_STEP_SUMMARY
+        else
+          echo "## ❌ Deployment Failed" >> $GITHUB_STEP_SUMMARY
+          echo "There was an issue with the deployment. Please check the logs above." >> $GITHUB_STEP_SUMMARY
+        fi

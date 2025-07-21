@@ -1,0 +1,190 @@
+name: Security Scan Only
+
+on:
+  schedule:
+    # Run security scans daily at 2 AM UTC
+    - cron: '0 2 * * *'
+  workflow_dispatch:
+    inputs:
+      image_tag:
+        description: 'Image tag to scan (leave empty for latest)'
+        required: false
+        default: 'latest'
+      severity:
+        description: 'Vulnerability severity levels'
+        required: false
+        default: 'CRITICAL,HIGH'
+        type: choice
+        options:
+        - 'CRITICAL'
+        - 'CRITICAL,HIGH'
+        - 'CRITICAL,HIGH,MEDIUM'
+
+jobs:
+  security-scan:
+    name: Trivy Security Scan
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+    
+    - name: Set scan parameters
+      id: params
+      run: |
+        IMAGE_TAG="${{ github.event.inputs.image_tag || 'latest' }}"
+        SEVERITY="${{ github.event.inputs.severity || 'CRITICAL,HIGH' }}"
+        FULL_IMAGE="${{ secrets.REGISTRY_LOGIN_SERVER }}/webgoat-core:${IMAGE_TAG}"
+        
+        echo "image-tag=${IMAGE_TAG}" >> $GITHUB_OUTPUT
+        echo "severity=${SEVERITY}" >> $GITHUB_OUTPUT
+        echo "full-image=${FULL_IMAGE}" >> $GITHUB_OUTPUT
+        
+        echo "Scanning image: ${FULL_IMAGE}"
+        echo "Severity levels: ${SEVERITY}"
+    
+    - name: Log in to Azure Container Registry
+      uses: docker/login-action@v3
+      with:
+        registry: ${{ secrets.REGISTRY_LOGIN_SERVER }}
+        username: ${{ secrets.REGISTRY_USERNAME }}
+        password: ${{ secrets.REGISTRY_PASSWORD }}
+    
+    - name: Pull image for scanning
+      run: |
+        docker pull ${{ steps.params.outputs.full-image }}
+    
+    - name: Install Trivy manually
+      run: |
+        sudo apt-get update
+        sudo apt-get install wget apt-transport-https gnupg lsb-release -y
+        wget -qO - https://aquasecurity.github.io/trivy-repo/deb/public.key | sudo apt-key add -
+        echo "deb https://aquasecurity.github.io/trivy-repo/deb $(lsb_release -sc) main" | sudo tee -a /etc/apt/sources.list.d/trivy.list
+        sudo apt-get update
+        sudo apt-get install trivy -y
+        trivy --version
+    
+    - name: Run comprehensive Trivy scan
+      run: |
+        echo "## 🔍 Scheduled Security Scan Results" >> $GITHUB_STEP_SUMMARY
+        echo "**Image:** ${{ steps.params.outputs.full-image }}" >> $GITHUB_STEP_SUMMARY
+        echo "**Scan Date:** $(date -u)" >> $GITHUB_STEP_SUMMARY
+        echo "**Severity:** ${{ steps.params.outputs.severity }}" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        
+        # Run detailed scan
+        trivy image \
+          --format table \
+          --severity ${{ steps.params.outputs.severity }} \
+          --ignore-unfixed \
+          --no-progress \
+          ${{ steps.params.outputs.full-image }} | tee trivy-scheduled-scan.txt
+        
+        echo "<details><summary>📋 Detailed Scan Results</summary>" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+        cat trivy-scheduled-scan.txt >> $GITHUB_STEP_SUMMARY
+        echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+        echo "</details>" >> $GITHUB_STEP_SUMMARY
+    
+    - name: Generate JSON report
+      run: |
+        trivy image \
+          --format json \
+          --severity ${{ steps.params.outputs.severity }} \
+          --ignore-unfixed \
+          --no-progress \
+          ${{ steps.params.outputs.full-image }} > trivy-scheduled-scan.json
+    
+    - name: Analyze scan results
+      run: |
+        # Count vulnerabilities by severity
+        CRITICAL_COUNT=$(cat trivy-scheduled-scan.json | jq '[.Results[]?.Vulnerabilities[]? | select(.Severity=="CRITICAL")] | length')
+        HIGH_COUNT=$(cat trivy-scheduled-scan.json | jq '[.Results[]?.Vulnerabilities[]? | select(.Severity=="HIGH")] | length')
+        MEDIUM_COUNT=$(cat trivy-scheduled-scan.json | jq '[.Results[]?.Vulnerabilities[]? | select(.Severity=="MEDIUM")] | length')
+        TOTAL_COUNT=$(cat trivy-scheduled-scan.json | jq '[.Results[]?.Vulnerabilities[]?] | length')
+        
+        echo "## 📊 Vulnerability Summary" >> $GITHUB_STEP_SUMMARY
+        echo "- **Total Vulnerabilities:** ${TOTAL_COUNT}" >> $GITHUB_STEP_SUMMARY
+        echo "- **Critical:** ${CRITICAL_COUNT}" >> $GITHUB_STEP_SUMMARY
+        echo "- **High:** ${HIGH_COUNT}" >> $GITHUB_STEP_SUMMARY
+        echo "- **Medium:** ${MEDIUM_COUNT}" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        
+        # Set status
+        if [ "${CRITICAL_COUNT}" -gt 0 ]; then
+          echo "🚨 **Status:** CRITICAL vulnerabilities found" >> $GITHUB_STEP_SUMMARY
+          echo "SCAN_STATUS=CRITICAL" >> $GITHUB_ENV
+        elif [ "${HIGH_COUNT}" -gt 0 ]; then
+          echo "⚠️ **Status:** HIGH vulnerabilities found" >> $GITHUB_STEP_SUMMARY
+          echo "SCAN_STATUS=HIGH" >> $GITHUB_ENV
+        else
+          echo "✅ **Status:** No critical or high vulnerabilities" >> $GITHUB_STEP_SUMMARY
+          echo "SCAN_STATUS=CLEAN" >> $GITHUB_ENV
+        fi
+        
+        # Export for artifacts
+        echo "CRITICAL_COUNT=${CRITICAL_COUNT}" >> scan-summary.env
+        echo "HIGH_COUNT=${HIGH_COUNT}" >> scan-summary.env
+        echo "MEDIUM_COUNT=${MEDIUM_COUNT}" >> scan-summary.env
+        echo "TOTAL_COUNT=${TOTAL_COUNT}" >> scan-summary.env
+        echo "SCAN_DATE=$(date -u)" >> scan-summary.env
+    
+    - name: Upload scan artifacts
+      uses: actions/upload-artifact@v4
+      if: always()
+      with:
+        name: scheduled-security-scan-${{ github.run_number }}
+        path: |
+          trivy-scheduled-scan.txt
+          trivy-scheduled-scan.json
+          scan-summary.env
+        retention-days: 90
+    
+    - name: Create issue on critical vulnerabilities
+      if: env.SCAN_STATUS == 'CRITICAL'
+      uses: actions/github-script@v7
+      with:
+        script: |
+          const fs = require('fs');
+          const scanResults = fs.readFileSync('trivy-scheduled-scan.txt', 'utf8');
+          const summary = fs.readFileSync('scan-summary.env', 'utf8');
+          
+          const issueBody = `
+          # 🚨 Critical Security Vulnerabilities Detected
+          
+          A scheduled security scan has detected **critical** vulnerabilities in our container image.
+          
+          **Image:** \`${{ steps.params.outputs.full-image }}\`
+          **Scan Date:** ${new Date().toISOString()}
+          **Workflow Run:** ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          
+          ## Summary
+          ${summary}
+          
+          ## Action Required
+          - [ ] Review vulnerability details in the scan results
+          - [ ] Update affected packages/dependencies
+          - [ ] Rebuild and redeploy the application
+          - [ ] Verify fixes with a new security scan
+          
+          ## Scan Results
+          <details>
+          <summary>📋 Full Scan Output</summary>
+          
+          \`\`\`
+          ${scanResults}
+          \`\`\`
+          </details>
+          
+          ---
+          *This issue was automatically created by the scheduled security scan workflow.*
+          `;
+          
+          await github.rest.issues.create({
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            title: `🚨 Critical Security Vulnerabilities - ${new Date().toISOString().split('T')[0]}`,
+            body: issueBody,
+            labels: ['security', 'critical', 'vulnerability']
+          });

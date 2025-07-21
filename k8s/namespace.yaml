@@ -1,0 +1,7 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: dotnet-namespace
+  labels:
+    name: dotnet-namespace
+    environment: production

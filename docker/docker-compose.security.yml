@@ -1,0 +1,143 @@
+version: '3.8'
+
+services:
+  webgoat-core:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+      args:
+        DOTNET_VERSION: 5.0.17
+        ASPNET_VERSION: 5.0.17
+        BUILD_CONFIGURATION: Release
+        APP_USER_UID: 1001
+        APP_USER_GID: 1001
+    
+    container_name: webgoat-core-secure
+    
+    # Security settings
+    user: "1001:1001"
+    read_only: true
+    
+    # Security options
+    security_opt:
+      - no-new-privileges:true
+      - seccomp:default
+    
+    # Drop all capabilities and add only necessary ones
+    cap_drop:
+      - ALL
+    cap_add:
+      - NET_BIND_SERVICE
+    
+    # Resource limits
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: '0.50'
+        reservations:
+          memory: 256M
+          cpus: '0.25'
+    
+    # Temporary filesystems for writable directories
+    tmpfs:
+      - /tmp:noexec,nosuid,size=100m
+      - /app/logs:noexec,nosuid,size=100m
+      - /app/temp:noexec,nosuid,size=50m
+    
+    # Environment variables
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Production
+      - ASPNETCORE_URLS=http://+:8080
+      - ASPNETCORE_FORWARDEDHEADERS_ENABLED=true
+      - DOTNET_RUNNING_IN_CONTAINER=true
+      - DOTNET_USE_POLLING_FILE_WATCHER=true
+      - DOTNET_EnableDiagnostics=0
+      - COMPlus_EnableDiagnostics=0
+    
+    # Port mapping
+    ports:
+      - "8080:8080"
+    
+    # Health check
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    
+    # Restart policy
+    restart: unless-stopped
+    
+    # Network
+    networks:
+      - webgoat-network
+    
+    # Logging configuration
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # Optional: Reverse proxy for additional security
+  nginx:
+    image: nginx:1.21-alpine
+    container_name: webgoat-nginx
+    
+    # Security settings
+    user: "101:101"  # nginx user
+    read_only: true
+    
+    security_opt:
+      - no-new-privileges:true
+    
+    cap_drop:
+      - ALL
+    cap_add:
+      - NET_BIND_SERVICE
+      - CHOWN
+      - SETUID
+      - SETGID
+    
+    # Temporary filesystems
+    tmpfs:
+      - /tmp:noexec,nosuid,size=50m
+      - /var/cache/nginx:noexec,nosuid,size=50m
+      - /var/run:noexec,nosuid,size=50m
+    
+    # Configuration volume
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./ssl:/etc/nginx/ssl:ro
+    
+    ports:
+      - "80:80"
+      - "443:443"
+    
+    depends_on:
+      - webgoat-core
+    
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    
+    restart: unless-stopped
+    
+    networks:
+      - webgoat-network
+
+networks:
+  webgoat-network:
+    driver: bridge
+    driver_opts:
+      com.docker.network.bridge.default_bridge: "false"
+      com.docker.network.bridge.enable_icc: "true"
+      com.docker.network.bridge.enable_ip_masquerade: "true"
+      com.docker.network.bridge.host_binding_ipv4: "0.0.0.0"
+    ipam:
+      config:
+        - subnet: 172.20.0.0/16
