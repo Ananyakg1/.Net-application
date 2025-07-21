@@ -90,10 +90,10 @@ spec:
             cpu: "500m"
             ephemeral-storage: "2Gi"
         
-        # Simplified health checks - use basic endpoints that should work
+        # Health checks using correct case-sensitive paths for ASP.NET Core
         livenessProbe:
           httpGet:
-            path: /health
+            path: /Health
             port: http
             scheme: HTTP
           initialDelaySeconds: 120
@@ -104,7 +104,7 @@ spec:
         
         readinessProbe:
           httpGet:
-            path: /health
+            path: /Health/ready
             port: http
             scheme: HTTP
           initialDelaySeconds: 90
@@ -115,7 +115,7 @@ spec:
         
         startupProbe:
           httpGet:
-            path: /health
+            path: /Health/startup
             port: http
             scheme: HTTP
           initialDelaySeconds: 60
