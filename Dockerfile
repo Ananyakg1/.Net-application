@@ -55,7 +55,6 @@ RUN dotnet publish WebGoatCore.csproj \
     -o /app/publish \
     --runtime linux-x64 \
     --self-contained false \
-    --no-build \
     --verbosity minimal \
     /p:PublishTrimmed=false \
     /p:PublishReadyToRun=false
