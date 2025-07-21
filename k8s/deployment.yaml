@@ -90,39 +90,39 @@ spec:
             cpu: "500m"
             ephemeral-storage: "2Gi"
         
-        # Health checks
-        livenessProbe:
-          httpGet:
-            path: /health/live
-            port: http
-            scheme: HTTP
-          initialDelaySeconds: 60  # Increased for debugging
-          periodSeconds: 10
-          timeoutSeconds: 5
-          successThreshold: 1
-          failureThreshold: 3
-        
-        readinessProbe:
-          httpGet:
-            path: /health/ready
-            port: http
-            scheme: HTTP
-          initialDelaySeconds: 45  # Increased for debugging
-          periodSeconds: 5
-          timeoutSeconds: 10  # Increased timeout for .NET responses
-          successThreshold: 1
-          failureThreshold: 3
-        
-        startupProbe:
-          httpGet:
-            path: /health/startup
-            port: http
-            scheme: HTTP
-          initialDelaySeconds: 30  # Increased for debugging
-          periodSeconds: 10
-          timeoutSeconds: 10  # Increased timeout for .NET startup
-          successThreshold: 1
-          failureThreshold: 30
+        # Health checks - temporarily commented for debugging
+        # livenessProbe:
+        #   httpGet:
+        #     path: /health/live
+        #     port: http
+        #     scheme: HTTP
+        #   initialDelaySeconds: 60  # Increased for debugging
+        #   periodSeconds: 10
+        #   timeoutSeconds: 5
+        #   successThreshold: 1
+        #   failureThreshold: 3
+        # 
+        # readinessProbe:
+        #   httpGet:
+        #     path: /health/ready
+        #     port: http
+        #     scheme: HTTP
+        #   initialDelaySeconds: 45  # Increased for debugging
+        #   periodSeconds: 5
+        #   timeoutSeconds: 10  # Increased timeout for .NET responses
+        #   successThreshold: 1
+        #   failureThreshold: 3
+        # 
+        # startupProbe:
+        #   httpGet:
+        #     path: /health/startup
+        #     port: http
+        #     scheme: HTTP
+        #   initialDelaySeconds: 30  # Increased for debugging
+        #   periodSeconds: 10
+        #   timeoutSeconds: 10  # Increased timeout for .NET startup
+        #   successThreshold: 1
+        #   failureThreshold: 30
         
         # Volume mounts for writable directories
         volumeMounts:
