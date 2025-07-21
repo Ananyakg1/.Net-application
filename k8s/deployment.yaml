@@ -90,26 +90,26 @@ spec:
             cpu: "500m"
             ephemeral-storage: "2Gi"
         
-        # Health checks with extended timeouts for .NET application startup
+        # Optimized health checks - faster startup while maintaining reliability
         livenessProbe:
           httpGet:
             path: /Health
             port: http
             scheme: HTTP
-          initialDelaySeconds: 180
+          initialDelaySeconds: 60
           periodSeconds: 30
-          timeoutSeconds: 30
+          timeoutSeconds: 10
           successThreshold: 1
-          failureThreshold: 5
+          failureThreshold: 3
         
         readinessProbe:
           httpGet:
             path: /Health/ready
             port: http
             scheme: HTTP
-          initialDelaySeconds: 150
-          periodSeconds: 20
-          timeoutSeconds: 30
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          timeoutSeconds: 10
           successThreshold: 1
           failureThreshold: 3
         
@@ -118,11 +118,11 @@ spec:
             path: /Health/startup
             port: http
             scheme: HTTP
-          initialDelaySeconds: 120
-          periodSeconds: 20
-          timeoutSeconds: 30
+          initialDelaySeconds: 20
+          periodSeconds: 10
+          timeoutSeconds: 10
           successThreshold: 1
-          failureThreshold: 15
+          failureThreshold: 10
         
         # Volume mounts for writable directories
         volumeMounts:

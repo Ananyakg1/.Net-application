@@ -1,7 +1,7 @@
 name: Build, Scan, and Deploy to AKS (Alternative)
 
 on:
-  push:
+  push: 
     branches:
       - main
       - develop
