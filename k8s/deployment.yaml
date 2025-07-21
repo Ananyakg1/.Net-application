@@ -90,13 +90,13 @@ spec:
             cpu: "500m"
             ephemeral-storage: "2Gi"
         
-        # Health checks - conservative settings after confirming app works
+        # Simplified health checks - use basic endpoints that should work
         livenessProbe:
           httpGet:
-            path: /health/live
+            path: /health
             port: http
             scheme: HTTP
-          initialDelaySeconds: 120  # Very conservative - app is proven to work
+          initialDelaySeconds: 120
           periodSeconds: 30
           timeoutSeconds: 15
           successThreshold: 1
@@ -104,10 +104,10 @@ spec:
         
         readinessProbe:
           httpGet:
-            path: /health/ready
+            path: /health
             port: http
             scheme: HTTP
-          initialDelaySeconds: 90  # Conservative after app starts
+          initialDelaySeconds: 90
           periodSeconds: 15
           timeoutSeconds: 15
           successThreshold: 1
@@ -115,10 +115,10 @@ spec:
         
         startupProbe:
           httpGet:
-            path: /health/startup
+            path: /health
             port: http
             scheme: HTTP
-          initialDelaySeconds: 60  # Give app time to start
+          initialDelaySeconds: 60
           periodSeconds: 15
           timeoutSeconds: 15
           successThreshold: 1
