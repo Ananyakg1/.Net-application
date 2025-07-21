@@ -13,16 +13,6 @@ ARG BUILD_CONFIGURATION=Release
 ARG APP_USER_UID=1001
 ARG APP_USER_GID=1001
 
-# Install security updates and required packages
-RUN apt-get update \
-    && apt-get upgrade -y \
-    && apt-get install -y --no-install-recommends \
-        ca-certificates \
-        curl \
-    && apt-get autoremove -y \
-    && apt-get clean \
-    && rm -rf /var/lib/apt/lists/* /var/cache/apt/archives/*
-
 # Create application user and group
 RUN groupadd -g ${APP_USER_GID} appuser \
     && useradd -r -u ${APP_USER_UID} -g appuser -s /sbin/nologin \
@@ -97,16 +87,6 @@ LABEL maintainer="WebGoat Core Team" \
 ARG APP_USER_UID=1001
 ARG APP_USER_GID=1001
 
-# Update base image packages for security
-RUN apt-get update \
-    && apt-get upgrade -y \
-    && apt-get install -y --no-install-recommends \
-        ca-certificates \
-        curl \
-    && apt-get autoremove -y \
-    && apt-get clean \
-    && rm -rf /var/lib/apt/lists/* /var/cache/apt/archives/*
-
 # Create application user and group (non-root)
 RUN groupadd -g ${APP_USER_GID} appuser \
     && useradd -r -u ${APP_USER_UID} -g appuser -s /sbin/nologin \
@@ -130,11 +110,6 @@ RUN if [ -f ./NORTHWND.sqlite ]; then \
         chmod 644 ./NORTHWND.sqlite; \
     fi
 
-# Create health check script
-RUN echo '#!/bin/bash\ncurl -f http://localhost:8080/health || exit 1' > /app/healthcheck.sh \
-    && chmod +x /app/healthcheck.sh \
-    && chown appuser:appuser /app/healthcheck.sh
-
 # Switch to non-root user
 USER appuser:appuser
 
@@ -156,10 +131,6 @@ ENV ASPNETCORE_FORWARDEDHEADERS_ENABLED=true \
 
 # Expose port (non-privileged)
 EXPOSE 8080
-
-# Add health check
-HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
-    CMD ["/app/healthcheck.sh"]
 
 # Use simple shell script entrypoint for proper signal handling
 ENTRYPOINT ["dotnet", "WebGoatCore.dll"]
