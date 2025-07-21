@@ -345,33 +345,27 @@ jobs:
         echo "acr-server: '${{ needs.build.outputs.acr-server }}'"
         echo "build-id: '${{ needs.build.outputs.build-id }}'"
         
-        # Try to get the full image tag from outputs, if empty construct it manually
-        FULL_IMAGE_TAG="${{ needs.build.outputs.image-tag }}"
+        echo "=== Environment Variables Debug ==="
+        echo "ACR_LOGIN_SERVER (env): ${ACR_LOGIN_SERVER}"
+        echo "IMAGE_NAME (env): ${IMAGE_NAME}"
         
-        if [ -z "${FULL_IMAGE_TAG}" ]; then
-          echo "⚠️ image-tag output is empty, constructing manually..."
-          ACR_SERVER="${{ needs.build.outputs.acr-server }}"
-          BUILD_ID="${{ needs.build.outputs.build-id }}"
-          
-          if [ -n "${ACR_SERVER}" ] && [ -n "${BUILD_ID}" ]; then
-            FULL_IMAGE_TAG="${ACR_SERVER}/webgoat-core:${BUILD_ID}"
-            echo "Constructed image tag: ${FULL_IMAGE_TAG}"
-          else
-            echo "❌ ERROR: Cannot construct image tag - missing components:"
-            echo "  ACR_SERVER: '${ACR_SERVER}'"
-            echo "  BUILD_ID: '${BUILD_ID}'"
-            exit 1
-          fi
+        # Use environment variables instead of build outputs since they're available
+        ACR_SERVER="${ACR_LOGIN_SERVER}"
+        BUILD_ID="${{ needs.build.outputs.build-id }}"
+        
+        if [ -n "${ACR_SERVER}" ] && [ -n "${BUILD_ID}" ]; then
+          FULL_IMAGE_TAG="${ACR_SERVER}/${IMAGE_NAME}:${BUILD_ID}"
+          echo "✅ Constructed image tag: ${FULL_IMAGE_TAG}"
+        else
+          echo "❌ ERROR: Cannot construct image tag - missing components:"
+          echo "  ACR_SERVER: '${ACR_SERVER}'"
+          echo "  BUILD_ID: '${BUILD_ID}'"
+          echo "  IMAGE_NAME: '${IMAGE_NAME}'"
+          exit 1
         fi
         
         echo "=== Image Substitution Debug ==="
         echo "Final image tag: ${FULL_IMAGE_TAG}"
-        
-        # Validate the image tag is not empty
-        if [ -z "${FULL_IMAGE_TAG}" ]; then
-          echo "❌ ERROR: FULL_IMAGE_TAG is still empty!"
-          exit 1
-        fi
         
         echo "=== Before substitution ==="
         grep -n "image:" k8s/deployment.yaml
