@@ -63,9 +63,7 @@ namespace WebGoatCore
                 .AddRazorRuntimeCompilation();
 
             // Add health checks
-            services.AddHealthChecks()
-                .AddDbContextCheck<NorthwindContext>("database")
-                .AddCheck("self", () => HealthCheckResult.Healthy());
+            services.AddHealthChecks();
 
             services.AddDbContext<NorthwindContext>(options =>
                 options.UseSqlite(NorthwindContext.ConnString)
