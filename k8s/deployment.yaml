@@ -90,15 +90,15 @@ spec:
             cpu: "500m"
             ephemeral-storage: "2Gi"
         
-        # Health checks using correct case-sensitive paths for ASP.NET Core
+        # Health checks with extended timeouts for .NET application startup
         livenessProbe:
           httpGet:
             path: /Health
             port: http
             scheme: HTTP
-          initialDelaySeconds: 120
+          initialDelaySeconds: 180
           periodSeconds: 30
-          timeoutSeconds: 15
+          timeoutSeconds: 30
           successThreshold: 1
           failureThreshold: 5
         
@@ -107,9 +107,9 @@ spec:
             path: /Health/ready
             port: http
             scheme: HTTP
-          initialDelaySeconds: 90
-          periodSeconds: 15
-          timeoutSeconds: 15
+          initialDelaySeconds: 150
+          periodSeconds: 20
+          timeoutSeconds: 30
           successThreshold: 1
           failureThreshold: 3
         
@@ -118,11 +118,11 @@ spec:
             path: /Health/startup
             port: http
             scheme: HTTP
-          initialDelaySeconds: 60
-          periodSeconds: 15
-          timeoutSeconds: 15
+          initialDelaySeconds: 120
+          periodSeconds: 20
+          timeoutSeconds: 30
           successThreshold: 1
-          failureThreshold: 10
+          failureThreshold: 15
         
         # Volume mounts for writable directories
         volumeMounts:
