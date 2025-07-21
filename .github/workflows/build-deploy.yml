@@ -338,22 +338,48 @@ jobs:
         kubectl apply -f k8s/network-policy.yaml
         # kubectl apply -f k8s/scaling.yaml  # Temporarily disabled - may require metrics server
     
+    - name: Debug build outputs
+      run: |
+        echo "=== Build Job Outputs Debug ==="
+        echo "acr-server: '${{ needs.build.outputs.acr-server }}'"
+        echo "build-id: '${{ needs.build.outputs.build-id }}'"
+        echo "image-tag: '${{ needs.build.outputs.image-tag }}'"
+        
+        # Check if outputs are empty
+        if [ -z "${{ needs.build.outputs.acr-server }}" ]; then
+          echo "❌ ERROR: acr-server output is empty!"
+        fi
+        if [ -z "${{ needs.build.outputs.build-id }}" ]; then
+          echo "❌ ERROR: build-id output is empty!"
+        fi
+    
     - name: Update deployment image
       run: |
         # Get the full image path from build job outputs
-        FULL_IMAGE_TAG="${{ needs.build.outputs.acr-server }}/webgoat-core:${{ needs.build.outputs.build-id }}"
+        FULL_IMAGE_TAG="${{ needs.build.outputs.image-tag }}"
         
-        echo "Updating deployment with image: ${FULL_IMAGE_TAG}"
+        echo "=== Image Substitution Debug ==="
+        echo "Using image-tag output directly: ${FULL_IMAGE_TAG}"
         
-        # Use a more reliable method to replace the image
-        sed -i "s|\${ACR_LOGIN_SERVER}|${{ needs.build.outputs.acr-server }}|g" k8s/deployment.yaml
-        sed -i "s|\${IMAGE_TAG}|${{ needs.build.outputs.build-id }}|g" k8s/deployment.yaml
+        echo "=== Before substitution ==="
+        grep -n "image:" k8s/deployment.yaml || echo "No image line found"
         
-        echo "Updated deployment image to: ${FULL_IMAGE_TAG}"
+        # Replace the entire image line with the correct one
+        sed -i "s|image: .*|image: ${FULL_IMAGE_TAG}|g" k8s/deployment.yaml
         
-        # Verify the change
-        echo "=== Current image configuration ==="
-        grep -n "image:" k8s/deployment.yaml
+        echo "=== After substitution ==="
+        grep -n "image:" k8s/deployment.yaml || echo "No image line found after replacement"
+        
+        # Verify the change worked
+        if grep -q "${FULL_IMAGE_TAG}" k8s/deployment.yaml; then
+          echo "✅ Image substitution successful!"
+        else
+          echo "❌ Image substitution failed!"
+          echo "Expected: ${FULL_IMAGE_TAG}"
+          echo "=== Full deployment file content around image ==="
+          grep -A 5 -B 5 "image:" k8s/deployment.yaml || cat k8s/deployment.yaml
+          exit 1
+        fi
     
     - name: Deploy application
       id: deploy
