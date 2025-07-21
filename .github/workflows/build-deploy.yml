@@ -133,8 +133,8 @@ jobs:
           ${{ env.IMAGE_TAG }}
           ${{ env.LATEST_TAG }}
         build-args: |
-          DOTNET_VERSION=5.0
-          ASPNET_VERSION=5.0
+          DOTNET_VERSION=6.0
+          ASPNET_VERSION=6.0
           BUILD_CONFIGURATION=Release
           APP_USER_UID=1001
           APP_USER_GID=1001

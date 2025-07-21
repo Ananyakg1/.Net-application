@@ -1,7 +1,7 @@
-# Use specific .NET 5.0 runtime and SDK versions for security and stability
+# Use specific .NET 6.0 runtime and SDK versions for security and stability
 # Multi-stage build for smaller image size and better security
-ARG DOTNET_VERSION=5.0
-ARG ASPNET_VERSION=5.0
+ARG DOTNET_VERSION=6.0
+ARG ASPNET_VERSION=6.0
 
 # ================================
 # Build Stage
