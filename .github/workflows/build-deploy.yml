@@ -409,7 +409,11 @@ jobs:
           kubectl delete deployment ${{ env.DEPLOYMENT_NAME }} -n ${{ env.NAMESPACE }}
           # Wait for pods to be terminated
           echo "Waiting for pods to terminate..."
-          kubectl wait --for=delete pods -l app=dotnet-app -n ${{ env.NAMESPACE }} --timeout=120s || true
+          kubectl wait --for=delete pods -l app=dotnet-app -n ${{ env.NAMESPACE }} --timeout=180s || true
+          
+          # Also clean up replica sets to avoid conflicts
+          echo "Cleaning up replica sets..."
+          kubectl delete replicasets -l app=dotnet-app -n ${{ env.NAMESPACE }} || true
         fi
         
         # Apply deployment and service
@@ -422,7 +426,7 @@ jobs:
         
         # Wait for rollout to complete with error handling
         echo "Waiting for deployment rollout..."
-        if ! kubectl rollout status deployment/${{ env.DEPLOYMENT_NAME }} -n ${{ env.NAMESPACE }} --timeout=600s; then
+        if ! kubectl rollout status deployment/${{ env.DEPLOYMENT_NAME }} -n ${{ env.NAMESPACE }} --timeout=300s; then
           echo "❌ Deployment rollout failed or timed out!"
           echo "Gathering diagnostic information..."
           
