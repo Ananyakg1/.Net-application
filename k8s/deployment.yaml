@@ -109,7 +109,7 @@ spec:
             scheme: HTTP
           initialDelaySeconds: 45  # Increased for debugging
           periodSeconds: 5
-          timeoutSeconds: 3
+          timeoutSeconds: 10  # Increased timeout for .NET responses
           successThreshold: 1
           failureThreshold: 3
         
@@ -120,7 +120,7 @@ spec:
             scheme: HTTP
           initialDelaySeconds: 30  # Increased for debugging
           periodSeconds: 10
-          timeoutSeconds: 5
+          timeoutSeconds: 10  # Increased timeout for .NET startup
           successThreshold: 1
           failureThreshold: 30
         
