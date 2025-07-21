@@ -361,23 +361,40 @@ jobs:
         echo "=== Image Substitution Debug ==="
         echo "Using image-tag output directly: ${FULL_IMAGE_TAG}"
         
-        echo "=== Before substitution ==="
-        grep -n "image:" k8s/deployment.yaml || echo "No image line found"
+        # Validate the image tag is not empty
+        if [ -z "${FULL_IMAGE_TAG}" ]; then
+          echo "❌ ERROR: FULL_IMAGE_TAG is empty!"
+          echo "image-tag output: '${{ needs.build.outputs.image-tag }}'"
+          exit 1
+        fi
         
-        # Replace the entire image line with the correct one
-        sed -i "s|image: .*|image: ${FULL_IMAGE_TAG}|g" k8s/deployment.yaml
+        echo "=== Before substitution ==="
+        grep -n "image:" k8s/deployment.yaml
+        
+        # Use a more specific replacement that targets the exact placeholder
+        sed -i "s|\${ACR_LOGIN_SERVER}/webgoat-core:\${IMAGE_TAG}|${FULL_IMAGE_TAG}|g" k8s/deployment.yaml
         
         echo "=== After substitution ==="
-        grep -n "image:" k8s/deployment.yaml || echo "No image line found after replacement"
+        grep -n "image:" k8s/deployment.yaml
         
         # Verify the change worked
         if grep -q "${FULL_IMAGE_TAG}" k8s/deployment.yaml; then
           echo "✅ Image substitution successful!"
         else
           echo "❌ Image substitution failed!"
-          echo "Expected: ${FULL_IMAGE_TAG}"
-          echo "=== Full deployment file content around image ==="
-          grep -A 5 -B 5 "image:" k8s/deployment.yaml || cat k8s/deployment.yaml
+          echo "Expected to find: ${FULL_IMAGE_TAG}"
+          echo "=== Current deployment content around image line ==="
+          grep -A 3 -B 3 "image:" k8s/deployment.yaml
+          
+          # Try to show what went wrong
+          if grep -q "image:" k8s/deployment.yaml; then
+            echo "Image line exists but doesn't contain expected content"
+            CURRENT_IMAGE=$(grep "image:" k8s/deployment.yaml | sed 's/.*image: //')
+            echo "Current image value: '${CURRENT_IMAGE}'"
+          else
+            echo "Image line completely missing!"
+          fi
+          
           exit 1
         fi
     
