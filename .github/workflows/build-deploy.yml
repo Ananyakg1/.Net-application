@@ -494,10 +494,10 @@ jobs:
       run: |
         echo "Running post-deployment health checks..."
         
-        # Wait for health checks to complete their initial delays
+        # Wait for health checks to complete their initial delays (now much faster!)
         echo "Waiting for application startup and health check initialization..."
-        echo "⏳ Startup probes need 2 minutes, readiness probes need 2.5 minutes"
-        sleep 60
+        echo "⏳ Startup probes need 20 seconds, readiness probes need 30 seconds"
+        sleep 45
         
         # Function to check pod readiness with multiple attempts
         check_pods_ready() {
